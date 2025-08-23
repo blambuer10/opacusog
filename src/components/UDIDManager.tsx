@@ -15,7 +15,8 @@ import {
   Loader2, 
   Copy, 
   Check,
-  Shield
+  Shield,
+  Zap
 } from 'lucide-react';
 import { useWeb3 } from '@/contexts/Web3Context';
 import { web3Service } from '@/lib/web3';
@@ -37,6 +38,7 @@ const UDIDManager: React.FC = () => {
   const [newLabel, setNewLabel] = useState('');
   const [newUdid, setNewUdid] = useState('');
   const [copied, setCopied] = useState(false);
+  const [useGasless, setUseGasless] = useState(true);
 
   useEffect(() => {
     if (isConnected && address) {
@@ -74,14 +76,27 @@ const UDIDManager: React.FC = () => {
     
     setCreating(true);
     try {
-      const contract = web3Service.getUDIDContract();
-      const desiredUdid = newUdid ? ethers.keccak256(ethers.toUtf8Bytes(newUdid)) : '0x0000000000000000000000000000000000000000000000000000000000000000';
-      
-      const tx = await contract.createUdid(desiredUdid, newLabel || 'My UDID');
-      toast.info('Creating UDID... Please wait for confirmation');
-      
-      await tx.wait();
-      toast.success('UDID created successfully!');
+      if (useGasless) {
+        // Gasless operation
+        toast.info('Preparing gasless UDID creation...');
+        const result = await web3Service.gaslessCreateUDID(address, newUdid, newLabel || 'My UDID');
+        
+        if (result.success) {
+          toast.success('UDID created successfully (gasless)!');
+        } else {
+          throw new Error(result.error || 'Gasless creation failed');
+        }
+      } else {
+        // Direct contract call (user pays gas)
+        const contract = web3Service.getUDIDContract();
+        const desiredUdid = newUdid ? ethers.keccak256(ethers.toUtf8Bytes(newUdid)) : '0x0000000000000000000000000000000000000000000000000000000000000000';
+        
+        const tx = await contract.createUdid(desiredUdid, newLabel || 'My UDID');
+        toast.info('Creating UDID... Please wait for confirmation');
+        
+        await tx.wait();
+        toast.success('UDID created successfully!');
+      }
       
       // Reload UDID info
       await loadUDIDInfo();
@@ -100,15 +115,29 @@ const UDIDManager: React.FC = () => {
     
     setLoading(true);
     try {
-      const contract = web3Service.getUDIDContract();
-      const newUdidHash = ethers.keccak256(ethers.toUtf8Bytes(newUdid));
-      
-      const tx = await contract.rotateUdid(newUdidHash);
-      toast.info('Rotating UDID... Please wait for confirmation');
-      
-      await tx.wait();
-      toast.success('UDID rotated successfully!');
-      
+      if (useGasless) {
+        // Gasless operation
+        toast.info('Preparing gasless UDID rotation...');
+        const newUdidHash = ethers.keccak256(ethers.toUtf8Bytes(newUdid));
+        const result = await web3Service.gaslessRotateUDID(address, newUdidHash);
+        
+        if (result.success) {
+          toast.success('UDID rotated successfully (gasless)!');
+        } else {
+          throw new Error(result.error || 'Gasless rotation failed');
+        }
+      } else {
+        // Direct contract call
+        const contract = web3Service.getUDIDContract();
+        const newUdidHash = ethers.keccak256(ethers.toUtf8Bytes(newUdid));
+        
+        const tx = await contract.rotateUdid(newUdidHash);
+        toast.info('Rotating UDID... Please wait for confirmation');
+        
+        await tx.wait();
+        toast.success('UDID rotated successfully!');
+      }
+
       await loadUDIDInfo();
       setNewUdid('');
     } catch (error: any) {
@@ -124,14 +153,27 @@ const UDIDManager: React.FC = () => {
     
     setLoading(true);
     try {
-      const contract = web3Service.getUDIDContract();
-      
-      const tx = await contract.setLabel(newLabel);
-      toast.info('Updating label... Please wait for confirmation');
-      
-      await tx.wait();
-      toast.success('Label updated successfully!');
-      
+      if (useGasless) {
+        // Gasless operation
+        toast.info('Preparing gasless label update...');
+        const result = await web3Service.gaslessUpdateLabel(address, newLabel);
+        
+        if (result.success) {
+          toast.success('Label updated successfully (gasless)!');
+        } else {
+          throw new Error(result.error || 'Gasless update failed');
+        }
+      } else {
+        // Direct contract call
+        const contract = web3Service.getUDIDContract();
+        
+        const tx = await contract.setLabel(newLabel);
+        toast.info('Updating label... Please wait for confirmation');
+        
+        await tx.wait();
+        toast.success('Label updated successfully!');
+      }
+
       await loadUDIDInfo();
       setNewLabel('');
     } catch (error: any) {
@@ -147,14 +189,27 @@ const UDIDManager: React.FC = () => {
     
     setLoading(true);
     try {
-      const contract = web3Service.getUDIDContract();
-      
-      const tx = await contract.revokeUdid();
-      toast.info('Revoking UDID... Please wait for confirmation');
-      
-      await tx.wait();
-      toast.success('UDID revoked successfully!');
-      
+      if (useGasless) {
+        // Gasless operation
+        toast.info('Preparing gasless UDID revocation...');
+        const result = await web3Service.gaslessRevokeUDID(address);
+        
+        if (result.success) {
+          toast.success('UDID revoked successfully (gasless)!');
+        } else {
+          throw new Error(result.error || 'Gasless revocation failed');
+        }
+      } else {
+        // Direct contract call
+        const contract = web3Service.getUDIDContract();
+        
+        const tx = await contract.revokeUdid();
+        toast.info('Revoking UDID... Please wait for confirmation');
+        
+        await tx.wait();
+        toast.success('UDID revoked successfully!');
+      }
+
       await loadUDIDInfo();
     } catch (error: any) {
       console.error('Error revoking UDID:', error);
@@ -197,9 +252,26 @@ const UDIDManager: React.FC = () => {
   return (
     <div className="space-y-6">
       <Card className="card-cyber p-6">
-        <div className="flex items-center mb-6">
-          <User className="w-6 h-6 mr-2 text-cyber-neon" />
-          <h2 className="text-2xl font-bold glow-text">UDID Manager</h2>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <User className="w-6 h-6 mr-2 text-cyber-neon" />
+            <h2 className="text-2xl font-bold glow-text">UDID Manager</h2>
+          </div>
+          
+          {/* Gasless Toggle */}
+          <div className="flex items-center space-x-2">
+            <Zap className={`w-4 h-4 ${useGasless ? 'text-cyber-green' : 'text-muted-foreground'}`} />
+            <button
+              onClick={() => setUseGasless(!useGasless)}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                useGasless 
+                  ? 'bg-cyber-green/20 text-cyber-green border border-cyber-green/50' 
+                  : 'bg-muted/50 text-muted-foreground border border-muted'
+              }`}
+            >
+              {useGasless ? 'Gasless ON' : 'Gas Required'}
+            </button>
+          </div>
         </div>
 
         {udidInfo ? (
@@ -274,7 +346,7 @@ const UDIDManager: React.FC = () => {
                     className="btn-cyber"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Edit3 className="w-4 h-4" />}
-                    Update Label
+                    {useGasless ? 'Update (Free)' : 'Update Label'}
                   </Button>
                 </div>
 
@@ -293,7 +365,7 @@ const UDIDManager: React.FC = () => {
                     className="border-cyber-blue/50 text-cyber-blue hover:bg-cyber-blue/10"
                   >
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                    Rotate
+                    {useGasless ? 'Rotate (Free)' : 'Rotate'}
                   </Button>
                 </div>
 
@@ -305,7 +377,7 @@ const UDIDManager: React.FC = () => {
                   className="w-full"
                 >
                   {loading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
-                  Revoke UDID
+                  {useGasless ? 'Revoke UDID (Free)' : 'Revoke UDID'}
                 </Button>
               </div>
             )}
@@ -321,6 +393,12 @@ const UDIDManager: React.FC = () => {
               <p className="text-muted-foreground">
                 Generate your Universal Digital Identity on the 0G Chain
               </p>
+              {useGasless && (
+                <Badge className="mt-2 bg-cyber-green/20 text-cyber-green border-cyber-green/50">
+                  <Zap className="w-3 h-3 mr-1" />
+                  Gas-Free Creation
+                </Badge>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -358,12 +436,12 @@ const UDIDManager: React.FC = () => {
               {creating ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Creating UDID...
+                  {useGasless ? 'Creating UDID (Gasless)...' : 'Creating UDID...'}
                 </>
               ) : (
                 <>
                   <Plus className="w-4 h-4 mr-2" />
-                  Create UDID
+                  {useGasless ? 'Create UDID (Free)' : 'Create UDID'}
                 </>
               )}
             </Button>
