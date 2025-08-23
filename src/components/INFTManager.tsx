@@ -15,38 +15,32 @@ import {
   ExternalLink,
   Palette,
   Shield,
-  Upload,
-  Zap
+  Copy
 } from 'lucide-react';
 import { useWeb3 } from '@/contexts/Web3Context';
 import { web3Service } from '@/lib/web3';
 import { toast } from 'sonner';
 import { ethers } from 'ethers';
 
-interface INFTData {
-  tokenId: string;
-  owner: string;
-  tokenURI: string;
-  metadataHash: string;
-}
-
 const INFTManager: React.FC = () => {
   const { address, isConnected } = useWeb3();
-  const [infts, setInfts] = useState<INFTData[]>([]);
   const [loading, setLoading] = useState(false);
   const [minting, setMinting] = useState(false);
   const [transferring, setTransferring] = useState(false);
   
   // Form states
   const [mintTo, setMintTo] = useState('');
-  const [metadataUri, setMetadataUri] = useState('');
-  const [metadataJson, setMetadataJson] = useState('');
+  const [encryptedUri, setEncryptedUri] = useState('');
+  const [metadataHash, setMetadataHash] = useState('');
   const [transferTokenId, setTransferTokenId] = useState('');
   const [transferTo, setTransferTo] = useState('');
-  const [secureTransferProof, setSecureTransferProof] = useState('');
+  const [sealedKey, setSealedKey] = useState('');
+  const [transferProof, setTransferProof] = useState('');
+  const [cloneTokenId, setCloneTokenId] = useState('');
+  const [cloneTo, setCloneTo] = useState('');
+  const [cloneProof, setCloneProof] = useState('');
   
   const [userBalance, setUserBalance] = useState('0');
-  const [activeTab, setActiveTab] = useState('mint');
 
   useEffect(() => {
     if (isConnected && address) {
@@ -64,8 +58,6 @@ const INFTManager: React.FC = () => {
       const balance = await contract.balanceOf(address);
       setUserBalance(balance.toString());
       
-      // Note: This is a simplified version. In a real app, you'd need to track token IDs
-      // or use events to get the full list of user's INFTs
       console.log(`User has ${balance} INFTs`);
     } catch (error) {
       console.error('Error loading INFTs:', error);
@@ -75,7 +67,7 @@ const INFTManager: React.FC = () => {
   };
 
   const mintINFT = async () => {
-    if (!address || !mintTo || !metadataUri) return;
+    if (!address || !mintTo || !encryptedUri) return;
     
     setMinting(true);
     try {
@@ -90,16 +82,10 @@ const INFTManager: React.FC = () => {
 
       const contract = web3Service.getINFTContract();
       
-      // Create metadata hash
-      const metadataHash = ethers.keccak256(ethers.toUtf8Bytes(metadataJson || metadataUri));
+      // Create metadata hash if not provided
+      const hash = metadataHash || ethers.keccak256(ethers.toUtf8Bytes(encryptedUri));
       
-      const tx = await contract.mint(
-        mintTo,
-        metadataUri,
-        metadataHash,
-        ethers.ZeroAddress, // No royalty recipient
-        0 // No royalty
-      );
+      const tx = await contract.mint(mintTo, encryptedUri, hash);
       
       toast.info('Minting INFT... Please wait for confirmation');
       const receipt = await tx.wait();
@@ -123,8 +109,8 @@ const INFTManager: React.FC = () => {
       }
       
       await loadUserINFTs();
-      setMetadataUri('');
-      setMetadataJson('');
+      setEncryptedUri('');
+      setMetadataHash('');
     } catch (error: any) {
       console.error('Error minting INFT:', error);
       toast.error(`Failed to mint INFT: ${error.message || 'Unknown error'}`);
@@ -133,7 +119,7 @@ const INFTManager: React.FC = () => {
     }
   };
 
-  const transferINFT = async () => {
+  const standardTransferINFT = async () => {
     if (!address || !transferTokenId || !transferTo) return;
     
     setTransferring(true);
@@ -158,27 +144,30 @@ const INFTManager: React.FC = () => {
   };
 
   const secureTransferINFT = async () => {
-    if (!address || !transferTokenId || !transferTo || !secureTransferProof) return;
+    if (!address || !transferTokenId || !transferTo || !sealedKey || !transferProof) return;
     
     setTransferring(true);
     try {
       const contract = web3Service.getINFTContract();
       
-      // Parse proof (should be base64 or hex encoded)
-      let proofBytes;
+      // Parse sealed key and proof
+      let sealedKeyBytes, proofBytes;
       try {
-        proofBytes = secureTransferProof.startsWith('0x') 
-          ? secureTransferProof 
-          : '0x' + Buffer.from(secureTransferProof, 'base64').toString('hex');
+        sealedKeyBytes = sealedKey.startsWith('0x') 
+          ? sealedKey 
+          : '0x' + Buffer.from(sealedKey, 'base64').toString('hex');
+        proofBytes = transferProof.startsWith('0x') 
+          ? transferProof 
+          : '0x' + Buffer.from(transferProof, 'base64').toString('hex');
       } catch {
-        throw new Error('Invalid proof format');
+        throw new Error('Invalid sealed key or proof format');
       }
       
-      const tx = await contract.secureTransfer(
+      const tx = await contract.transfer(
         address, 
         transferTo, 
         transferTokenId, 
-        '0x', // calldata
+        sealedKeyBytes,
         proofBytes
       );
       
@@ -190,10 +179,68 @@ const INFTManager: React.FC = () => {
       await loadUserINFTs();
       setTransferTokenId('');
       setTransferTo('');
-      setSecureTransferProof('');
+      setSealedKey('');
+      setTransferProof('');
     } catch (error: any) {
       console.error('Error in secure transfer:', error);
       toast.error(`Failed to execute secure transfer: ${error.message || 'Unknown error'}`);
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  const cloneINFT = async () => {
+    if (!address || !cloneTokenId || !cloneTo || !cloneProof) return;
+    
+    setTransferring(true);
+    try {
+      const contract = web3Service.getINFTContract();
+      
+      // Parse proof
+      let proofBytes;
+      try {
+        proofBytes = cloneProof.startsWith('0x') 
+          ? cloneProof 
+          : '0x' + Buffer.from(cloneProof, 'base64').toString('hex');
+      } catch {
+        throw new Error('Invalid proof format');
+      }
+      
+      const tx = await contract.clone(
+        cloneTo, 
+        cloneTokenId, 
+        '0x', // empty sealed key for clone
+        proofBytes
+      );
+      
+      toast.info('Cloning INFT... Please wait for confirmation');
+      const receipt = await tx.wait();
+      
+      // Try to get new token ID from events
+      const cloneEvent = receipt.logs.find((log: any) => {
+        try {
+          const parsed = contract.interface.parseLog(log);
+          return parsed?.name === 'Cloned';
+        } catch {
+          return false;
+        }
+      });
+
+      if (cloneEvent) {
+        const parsed = contract.interface.parseLog(cloneEvent);
+        const newTokenId = parsed?.args.newId.toString();
+        toast.success(`INFT cloned successfully! New Token ID: ${newTokenId}`);
+      } else {
+        toast.success('INFT cloned successfully!');
+      }
+      
+      await loadUserINFTs();
+      setCloneTokenId('');
+      setCloneTo('');
+      setCloneProof('');
+    } catch (error: any) {
+      console.error('Error cloning INFT:', error);
+      toast.error(`Failed to clone INFT: ${error.message || 'Unknown error'}`);
     } finally {
       setTransferring(false);
     }
@@ -223,13 +270,13 @@ const INFTManager: React.FC = () => {
         </div>
 
         <Tabs defaultValue="mint" className="w-full">
-          <TabsList className="grid w-full grid-cols-3 mb-6 bg-card/50 backdrop-blur-sm">
+          <TabsList className="grid w-full grid-cols-4 mb-6 bg-card/50 backdrop-blur-sm">
             <TabsTrigger 
               value="mint" 
               className="data-[state=active]:bg-cyber-neon/20 data-[state=active]:text-cyber-neon"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Mint INFT
+              Mint
             </TabsTrigger>
             <TabsTrigger 
               value="transfer"
@@ -244,6 +291,13 @@ const INFTManager: React.FC = () => {
             >
               <Shield className="w-4 h-4 mr-2" />
               Secure Transfer
+            </TabsTrigger>
+            <TabsTrigger 
+              value="clone"
+              className="data-[state=active]:bg-cyber-green/20 data-[state=active]:text-cyber-green"
+            >
+              <Copy className="w-4 h-4 mr-2" />
+              Clone
             </TabsTrigger>
           </TabsList>
 
@@ -266,34 +320,34 @@ const INFTManager: React.FC = () => {
               </div>
               
               <div>
-                <Label htmlFor="metadataUri">Metadata URI</Label>
+                <Label htmlFor="encryptedUri">Encrypted URI</Label>
                 <Input
-                  id="metadataUri"
+                  id="encryptedUri"
                   placeholder="https://... or ipfs://..."
-                  value={metadataUri}
-                  onChange={(e) => setMetadataUri(e.target.value)}
+                  value={encryptedUri}
+                  onChange={(e) => setEncryptedUri(e.target.value)}
                   className="input-cyber"
                 />
               </div>
             </div>
             
             <div>
-              <Label htmlFor="metadataJson">Metadata JSON (Optional)</Label>
-              <Textarea
-                id="metadataJson"
-                placeholder='{"name": "My INFT", "description": "...", "image": "..."}'
-                value={metadataJson}
-                onChange={(e) => setMetadataJson(e.target.value)}
-                className="input-cyber min-h-[100px]"
+              <Label htmlFor="metadataHash">Metadata Hash (Optional)</Label>
+              <Input
+                id="metadataHash"
+                placeholder="0x... (leave empty to auto-generate from URI)"
+                value={metadataHash}
+                onChange={(e) => setMetadataHash(e.target.value)}
+                className="input-cyber"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Used for creating metadata hash. Leave empty to use URI for hash.
+                Hash of the encrypted payload. Auto-generated if empty.
               </p>
             </div>
 
             <Button 
               onClick={mintINFT} 
-              disabled={minting || !mintTo || !metadataUri}
+              disabled={minting || !mintTo || !encryptedUri}
               className="btn-cyber w-full"
             >
               {minting ? (
@@ -341,7 +395,7 @@ const INFTManager: React.FC = () => {
             </div>
 
             <Button 
-              onClick={transferINFT} 
+              onClick={standardTransferINFT} 
               disabled={transferring || !transferTokenId || !transferTo}
               variant="outline"
               className="w-full border-cyber-blue/50 text-cyber-blue hover:bg-cyber-blue/10"
@@ -363,13 +417,13 @@ const INFTManager: React.FC = () => {
           <TabsContent value="secure" className="space-y-4">
             <h3 className="text-lg font-semibold flex items-center">
               <Shield className="w-5 h-5 mr-2 text-cyber-purple" />
-              TEE-Secured Transfer
+              ERC-7857 Secure Transfer
             </h3>
             
             <div className="bg-cyber-purple/10 border border-cyber-purple/30 rounded-lg p-4 mb-4">
               <p className="text-sm text-cyber-purple flex items-center">
                 <Shield className="w-4 h-4 mr-2" />
-                Secure transfers require TEE attestation proof for enhanced security
+                Secure transfers with re-encryption and TEE attestation proof
               </p>
             </div>
             
@@ -398,22 +452,30 @@ const INFTManager: React.FC = () => {
             </div>
 
             <div>
-              <Label htmlFor="proof">TEE Attestation Proof</Label>
+              <Label htmlFor="sealedKey">Sealed Key</Label>
               <Textarea
-                id="proof"
-                placeholder="Paste TEE attestation proof (base64 or hex)"
-                value={secureTransferProof}
-                onChange={(e) => setSecureTransferProof(e.target.value)}
+                id="sealedKey"
+                placeholder="Sealed encryption key (base64 or hex)"
+                value={sealedKey}
+                onChange={(e) => setSealedKey(e.target.value)}
+                className="input-cyber min-h-[80px]"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="transferProof">TEE Attestation Proof</Label>
+              <Textarea
+                id="transferProof"
+                placeholder="TEE attestation proof (base64 or hex)"
+                value={transferProof}
+                onChange={(e) => setTransferProof(e.target.value)}
                 className="input-cyber min-h-[100px]"
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                Proof must be obtained from a trusted TEE attester and validated by the oracle
-              </p>
             </div>
 
             <Button 
               onClick={secureTransferINFT} 
-              disabled={transferring || !transferTokenId || !transferTo || !secureTransferProof}
+              disabled={transferring || !transferTokenId || !transferTo || !sealedKey || !transferProof}
               className="w-full bg-gradient-to-r from-cyber-purple to-cyber-blue hover:from-cyber-purple/80 hover:to-cyber-blue/80"
             >
               {transferring ? (
@@ -429,6 +491,73 @@ const INFTManager: React.FC = () => {
               )}
             </Button>
           </TabsContent>
+
+          <TabsContent value="clone" className="space-y-4">
+            <h3 className="text-lg font-semibold flex items-center">
+              <Copy className="w-5 h-5 mr-2 text-cyber-green" />
+              Clone INFT
+            </h3>
+            
+            <div className="bg-cyber-green/10 border border-cyber-green/30 rounded-lg p-4 mb-4">
+              <p className="text-sm text-cyber-green flex items-center">
+                <Copy className="w-4 h-4 mr-2" />
+                Create a copy with re-encrypted metadata for a new owner
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="cloneTokenId">Source Token ID</Label>
+                <Input
+                  id="cloneTokenId"
+                  placeholder="1"
+                  value={cloneTokenId}
+                  onChange={(e) => setCloneTokenId(e.target.value)}
+                  className="input-cyber"
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="cloneTo">Clone To</Label>
+                <Input
+                  id="cloneTo"
+                  placeholder="0x..."
+                  value={cloneTo}
+                  onChange={(e) => setCloneTo(e.target.value)}
+                  className="input-cyber"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="cloneProof">TEE Attestation Proof</Label>
+              <Textarea
+                id="cloneProof"
+                placeholder="TEE attestation proof for cloning (base64 or hex)"
+                value={cloneProof}
+                onChange={(e) => setCloneProof(e.target.value)}
+                className="input-cyber min-h-[100px]"
+              />
+            </div>
+
+            <Button 
+              onClick={cloneINFT} 
+              disabled={transferring || !cloneTokenId || !cloneTo || !cloneProof}
+              className="w-full bg-gradient-to-r from-cyber-green to-cyber-neon hover:from-cyber-green/80 hover:to-cyber-neon/80"
+            >
+              {transferring ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Cloning INFT...
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 mr-2" />
+                  Clone INFT
+                </>
+              )}
+            </Button>
+          </TabsContent>
         </Tabs>
 
         {/* Quick Links */}
@@ -438,7 +567,7 @@ const INFTManager: React.FC = () => {
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => window.open('https://chainscan-galileo.0g.ai', '_blank')}
+              onClick={() => window.open('https://chainscan-newton.0g.ai', '_blank')}
               className="border-cyber-neon/30 text-cyber-neon hover:bg-cyber-neon/10"
             >
               <ExternalLink className="w-4 h-4 mr-2" />
