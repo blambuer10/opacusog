@@ -252,7 +252,7 @@ const ChatBot: React.FC = () => {
                 <div className="flex items-center mt-1 text-xs text-muted-foreground">
                   <span>{message.timestamp.toLocaleTimeString()}</span>
                   {message.onChain && (
-                    <Badge variant="outline" size="sm" className="ml-2 border-cyber-green/30 text-cyber-green">
+                    <Badge variant="outline" className="ml-2 border-cyber-green/30 text-cyber-green">
                       <Zap className="w-2 h-2 mr-1" />
                       On-chain
                     </Badge>
