@@ -1,3 +1,4 @@
+
 import type { Config } from "tailwindcss";
 
 export default {
@@ -61,6 +62,14 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
+				},
+				cyber: {
+					neon: 'hsl(var(--cyber-neon))',
+					dark: 'hsl(var(--cyber-dark))',
+					blue: 'hsl(var(--cyber-blue))',
+					green: 'hsl(var(--cyber-green))',
+					purple: 'hsl(var(--cyber-purple))',
+					grid: 'hsl(var(--cyber-grid))'
 				}
 			},
 			borderRadius: {
@@ -84,11 +93,44 @@ export default {
 					to: {
 						height: '0'
 					}
+				},
+				'glow-pulse': {
+					'0%, 100%': {
+						opacity: '1',
+						filter: 'drop-shadow(0 0 8px hsl(var(--cyber-neon)))'
+					},
+					'50%': {
+						opacity: '0.8',
+						filter: 'drop-shadow(0 0 20px hsl(var(--cyber-neon)))'
+					}
+				},
+				'grid-flow': {
+					'0%': {
+						transform: 'translateY(0) translateX(0)'
+					},
+					'100%': {
+						transform: 'translateY(-20px) translateX(-20px)'
+					}
+				},
+				'float': {
+					'0%, 100%': {
+						transform: 'translateY(0px)'
+					},
+					'50%': {
+						transform: 'translateY(-10px)'
+					}
 				}
 			},
 			animation: {
 				'accordion-down': 'accordion-down 0.2s ease-out',
-				'accordion-up': 'accordion-up 0.2s ease-out'
+				'accordion-up': 'accordion-up 0.2s ease-out',
+				'glow-pulse': 'glow-pulse 2s ease-in-out infinite',
+				'grid-flow': 'grid-flow 20s linear infinite',
+				'float': 'float 3s ease-in-out infinite'
+			},
+			backgroundImage: {
+				'cyber-grid': 'linear-gradient(hsl(var(--cyber-grid)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--cyber-grid)) 1px, transparent 1px)',
+				'cyber-gradient': 'linear-gradient(135deg, hsl(var(--cyber-blue)), hsl(var(--cyber-purple)), hsl(var(--cyber-green)))'
 			}
 		}
 	},
