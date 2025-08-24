@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Bot, 
@@ -36,6 +37,7 @@ import INFTManager from './INFTManager';
 import { OpacusCrypto } from '@/lib/crypto';
 import DataMarketplace from './DataMarketplace';
 import { Twitter, Instagram, Bitcoin, Music } from 'lucide-react';
+import { ethers } from 'ethers';
 
 interface Message {
   id: string;
@@ -341,6 +343,38 @@ const SmartChatBot: React.FC = () => {
       }
     } catch (error) {
       toast.error(`${type === 'location' ? 'Lokasyon' : 'Tarama geçmişi'} izni alınamadı`);
+    }
+  };
+
+  const handleDataSourceToggle = async (sourceId: string, enabled: boolean) => {
+    try {
+      if (enabled) {
+        if (sourceId === 'location') {
+          await requestLocationPermission();
+          toast.success('Lokasyon izni verildi!');
+        } else if (sourceId === 'browsing') {
+          await requestBrowsingPermission();
+          toast.success('Tarama geçmişi izni verildi!');
+        } else {
+          toast.info(`${sourceId} yakında geliyor!`);
+          return;
+        }
+        
+        if (isConnected && address) {
+          await web3Service.grantPermission(sourceId);
+        }
+      } else {
+        if (isConnected && address) {
+          await web3Service.revokePermission(sourceId);
+        }
+        toast.info(`${sourceId} izni kaldırıldı`);
+      }
+      
+      // Update data sources
+      updateDataSourcesStatus();
+    } catch (error) {
+      console.error(`Error toggling ${sourceId}:`, error);
+      toast.error(`${sourceId} izni güncellenemedi`);
     }
   };
 
