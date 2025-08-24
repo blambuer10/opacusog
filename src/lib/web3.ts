@@ -15,7 +15,7 @@ export const OG_CHAIN_CONFIG = {
   blockExplorerUrls: ['https://chainscan-newton.0g.ai'],
 };
 
-// Contract addresses - updated with all new contracts
+// Updated contract addresses with all deployed contracts
 export const CONTRACT_ADDRESSES = {
   UDID_REGISTRY: '0xb86988f2b2e9f9a6f4efc8e34dfc4ff1d7325555',
   SECURE_TEE_ORACLE: '0x8cf76d1301497467a7e19656a514a8c86a81d8f4',
@@ -222,6 +222,179 @@ export class Web3Service {
     return new ethers.Contract(CONTRACT_ADDRESSES.OG_STORAGE, OG_STORAGE_ABI, this.signer);
   }
 
+  // Enhanced Echo Orchestrator operations
+  async createDigitalTwin(params: {
+    dataUri: string;
+    metadataHash: string;
+    qualityScore: number;
+    modelUri?: string;
+  }): Promise<any> {
+    const contract = new ethers.Contract(
+      CONTRACT_ADDRESSES.ECHO_ORCHESTRATOR, 
+      [
+        'function createDigitalTwin(string calldata dataUri, bytes32 metadataHash, uint256 qualityScore, string calldata modelUri) external returns (uint256)',
+        'event DigitalTwinCreated(address indexed owner, uint256 indexed twinId, string dataUri, bytes32 metadataHash)'
+      ], 
+      this.signer!
+    );
+    const tx = await contract.createDigitalTwin(params.dataUri, params.metadataHash, params.qualityScore, params.modelUri || '');
+    return await tx.wait();
+  }
+
+  async updateTwinModel(twinId: string, modelUri: string): Promise<any> {
+    const contract = new ethers.Contract(
+      CONTRACT_ADDRESSES.ECHO_ORCHESTRATOR,
+      ['function updateTwinModel(uint256 twinId, string calldata newModelUri) external'],
+      this.signer!
+    );
+    const tx = await contract.updateTwinModel(twinId, modelUri);
+    return await tx.wait();
+  }
+
+  // Enhanced OG Compute operations
+  async submitSecureInference(params: {
+    twinId: string;
+    prompt: string;
+    context: string;
+    verificationMode: 'TEE' | 'ZKP';
+  }): Promise<any> {
+    const contract = new ethers.Contract(
+      CONTRACT_ADDRESSES.OG_COMPUTE,
+      [
+        'function submitSecureInference(uint256 twinId, string calldata prompt, string calldata context, uint8 verificationMode) external returns (bytes32)',
+        'function getInferenceResult(bytes32 jobId) external view returns (string memory, bytes memory proof, bool completed)',
+        'event InferenceRequested(bytes32 indexed jobId, address indexed requester, uint256 twinId)',
+        'event InferenceCompleted(bytes32 indexed jobId, string response, bytes proof)'
+      ],
+      this.signer!
+    );
+    const verificationModeValue = params.verificationMode === 'TEE' ? 0 : 1;
+    const tx = await contract.submitSecureInference(
+      params.twinId, 
+      params.prompt, 
+      params.context, 
+      verificationModeValue
+    );
+    return await tx.wait();
+  }
+
+  async getInferenceResult(jobId: string): Promise<{ response: string; proof: string; completed: boolean }> {
+    const contract = new ethers.Contract(
+      CONTRACT_ADDRESSES.OG_COMPUTE,
+      ['function getInferenceResult(bytes32 jobId) external view returns (string memory, bytes memory proof, bool completed)'],
+      this.signer!
+    );
+    const result = await contract.getInferenceResult(jobId);
+    return {
+      response: result[0],
+      proof: result[1],
+      completed: result[2]
+    };
+  }
+
+  // Enhanced marketplace operations with rental support
+  async createRentalListing(params: {
+    tokenId: string;
+    pricePerHour: string;
+    maxDuration: number;
+    permissions: string[];
+  }): Promise<any> {
+    const contract = this.getDataMarketplaceContract();
+    const permissionsBytes = params.permissions.map(p => ethers.keccak256(ethers.toUtf8Bytes(p)));
+    const tx = await contract.createRentalListing(
+      params.tokenId,
+      ethers.parseEther(params.pricePerHour),
+      params.maxDuration,
+      permissionsBytes
+    );
+    return await tx.wait();
+  }
+
+  async rentAccess(listingId: string, duration: number, value: string): Promise<any> {
+    const contract = this.getDataMarketplaceContract();
+    const tx = await contract.rentAccess(listingId, duration, {
+      value: ethers.parseEther(value)
+    });
+    return await tx.wait();
+  }
+
+  // Enhanced permission management with granular controls
+  async grantDataPermission(dataType: string, scope: string, duration?: number): Promise<any> {
+    const contract = this.getPermissionManagerContract();
+    const permissionKey = `${dataType}:${scope}`;
+    const tx = duration 
+      ? await contract.grantTemporaryPermission(permissionKey, duration)
+      : await contract.grantPermission(permissionKey);
+    return await tx.wait();
+  }
+
+  async revokeDataPermission(dataType: string, scope: string): Promise<any> {
+    const contract = this.getPermissionManagerContract();
+    const permissionKey = `${dataType}:${scope}`;
+    const tx = await contract.revokePermission(permissionKey);
+    return await tx.wait();
+  }
+
+  // Data catalog enhanced operations
+  async setDataQualityScore(collection: string, tokenId: string, score: number): Promise<any> {
+    const contract = this.getDataCatalogContract();
+    const scoreAttr = [{
+      key: ethers.keccak256(ethers.toUtf8Bytes('qualityScore')),
+      value: ethers.keccak256(ethers.toUtf8Bytes(score.toString()))
+    }];
+    const tx = await contract.setAttributes(collection, tokenId, scoreAttr);
+    return await tx.wait();
+  }
+
+  async getDataQualityScore(collection: string, tokenId: string): Promise<number> {
+    const contract = this.getDataCatalogContract();
+    const attrs = await contract.getAttributes(collection, tokenId);
+    const qualityAttr = attrs.find((attr: any) => 
+      attr.key === ethers.keccak256(ethers.toUtf8Bytes('qualityScore'))
+    );
+    return qualityAttr ? parseInt(qualityAttr.value) : 0;
+  }
+
+  // Enhanced storage operations
+  async storeEncryptedChatLog(user: string, prompt: string, response: string, encrypted: boolean = true): Promise<any> {
+    const contract = this.getOGStorageContract();
+    const tx = await contract.storeChatLog(user, prompt, response);
+    return await tx.wait();
+  }
+
+  async getChatThreads(user: string, limit: number = 50): Promise<any[]> {
+    const contract = this.getOGStorageContract();
+    const history = await contract.getChatHistory(user);
+    return history.slice(-limit);
+  }
+
+  // Utility functions for Echo integration
+  async mintDigitalTwinINFT(params: {
+    to: string;
+    encryptedDataUri: string;
+    metadataHash: string;
+    qualityScore: number;
+    dataTypes: string[];
+  }): Promise<any> {
+    // First mint the INFT
+    const inftTx = await this.mintINFT({
+      to: params.to,
+      uri: params.encryptedDataUri,
+      metadataHash: params.metadataHash
+    });
+    
+    const receipt = await inftTx.wait();
+    const tokenId = receipt.logs[0].args.tokenId.toString();
+
+    // Set data catalog tags
+    await this.setTags(CONTRACT_ADDRESSES.OPACUS_INFT, tokenId, params.dataTypes);
+    
+    // Set quality score
+    await this.setDataQualityScore(CONTRACT_ADDRESSES.OPACUS_INFT, tokenId, params.qualityScore);
+
+    return { tokenId, receipt };
+  }
+
   // Permission management operations
   async grantPermission(permission: string): Promise<any> {
     const contract = this.getPermissionManagerContract();
@@ -366,6 +539,39 @@ export class Web3Service {
   async storeEncryptedData(user: string, encryptedUri: string, metadataHash: string): Promise<any> {
     const contract = this.getOGStorageContract();
     const tx = await contract.storeEncryptedData(user, encryptedUri, metadataHash);
+    return await tx.wait();
+  }
+
+  // Mint INFT
+  async mintINFT(params: {
+    to: string;
+    uri: string;
+    metadataHash: string;
+  }): Promise<any> {
+    const contract = new ethers.Contract(
+      CONTRACT_ADDRESSES.OPACUS_INFT,
+      [
+        'function mint(address to, string calldata encURI, bytes32 h) external returns (uint256 id)',
+        'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)'
+      ],
+      this.signer!
+    );
+    const tx = await contract.mint(params.to, params.uri, params.metadataHash);
+    return await tx.wait();
+  }
+
+  // Set tags
+  async setTags(collection: string, tokenId: string, tags: string[]): Promise<any> {
+    const contract = new ethers.Contract(
+      collection,
+      [
+        'function setTags(address collection, uint256 tokenId, bytes32[] calldata tags) external',
+        'event TagsSet(address indexed collection, uint256 indexed tokenId, bytes32[] tags)'
+      ],
+      this.signer!
+    );
+    const tagBytes = tags.map(tag => ethers.keccak256(ethers.toUtf8Bytes(tag)));
+    const tx = await contract.setTags(collection, tokenId, tagBytes);
     return await tx.wait();
   }
 }
