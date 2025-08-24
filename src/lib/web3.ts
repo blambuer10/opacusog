@@ -1,4 +1,3 @@
-
 import { ethers } from 'ethers';
 import { udidApiClient } from '@/api/udid';
 import { inftApiClient } from '@/api/inft';
@@ -16,15 +15,17 @@ export const OG_CHAIN_CONFIG = {
   blockExplorerUrls: ['https://chainscan-newton.0g.ai'],
 };
 
-// Contract addresses - updated with new OpacusINFT address
+// Contract addresses - updated with all new contracts
 export const CONTRACT_ADDRESSES = {
   UDID_REGISTRY: '0xb86988f2b2e9f9a6f4efc8e34dfc4ff1d7325555',
   SECURE_TEE_ORACLE: '0x8cf76d1301497467a7e19656a514a8c86a81d8f4',
-  OPACUS_INFT: '0x1953cc8d4edf5c2a1a26b89d4c45edc01e3d3a3d', // NEW CONTRACT ADDRESS
+  OPACUS_INFT: '0x1953cc8d4edf5c2a1a26b89d4c45edc01e3d3a3d',
   PERMISSION_MANAGER: '0xe7e969d5e5e71f3cead2bf0323024e82c74b682c',
   OG_STORAGE: '0xecbd3ccb96ed4dd339d70e700ae878479dc14cdd',
   ECHO_ORCHESTRATOR: '0xe552a2d827d648086d550fc96a184b404ab49353',
   OG_COMPUTE: '0xd6941af4871851d018a7d502221cd863904a8ce2',
+  DATA_CATALOG: '0x878b719ef09deb766d158abe1ba5d7a34b84f127',
+  DATA_MARKETPLACE: '0x136911a3bfe8bff8b8fba9c742002c253da62890',
   PAYMASTER: '0x6248fB9D80441c8a6bDD3997AcD8493c8C4ccA5A',
   PROJECT_OWNER: '0x75a0F70499b60c87443459871507f5E3beC247C7'
 };
@@ -73,6 +74,58 @@ export const SECURE_TEE_ORACLE_ABI = [
   'function verifyAndConsume(bytes calldata proof) external returns (bool)',
   'function isTrustedSigner(address who) external view returns (bool)',
   'function isMrenclaveAllowed(bytes calldata mrenclave) external view returns (bool)'
+];
+
+// DataCatalog ABI
+export const DATA_CATALOG_ABI = [
+  'function setTags(address collection, uint256 tokenId, bytes32[] calldata tags) external',
+  'function setAttributes(address collection, uint256 tokenId, tuple(bytes32 key, bytes32 value)[] calldata attrs) external',
+  'function setMetaHash(address collection, uint256 tokenId, bytes32 metaHash) external',
+  'function getTags(address collection, uint256 tokenId) external view returns (bytes32[])',
+  'function getAttributes(address collection, uint256 tokenId) external view returns (tuple(bytes32 key, bytes32 value)[])',
+  'function getMetaHash(address collection, uint256 tokenId) external view returns (bytes32)',
+  'event TagsSet(address indexed collection, uint256 indexed tokenId, bytes32[] tags)',
+  'event AttributesSet(address indexed collection, uint256 indexed tokenId, tuple(bytes32 key, bytes32 value)[] attrs)',
+  'event MetaHashSet(address indexed collection, uint256 indexed tokenId, bytes32 metaHash)'
+];
+
+// DataMarketplace ABI
+export const DATA_MARKETPLACE_ABI = [
+  'function listItem(address collection, uint256 tokenId, uint8 saleType, address currency, uint256 price, uint64 rentDuration, bytes calldata rentPermissions, bytes32[] calldata tags) external returns (uint256 id)',
+  'function updateListing(uint256 id, address currency, uint256 price, uint64 rentDuration, bytes calldata rentPermissions, bytes32[] calldata tags) external',
+  'function unlist(uint256 id) external',
+  'function buy(uint256 id) external payable',
+  'function getListingsByTag(bytes32 tag) external view returns (uint256[])',
+  'function getListingsByCollection(address collection) external view returns (uint256[])',
+  'function getListingsBySeller(address seller) external view returns (uint256[])',
+  'function getListing(uint256 id) external view returns (tuple(address collection, uint256 tokenId, address seller, uint8 saleType, address currency, uint256 price, uint64 rentDuration, bytes rentPermissions, bool active, bytes32[] tags))',
+  'function listings(uint256 id) external view returns (tuple(address collection, uint256 tokenId, address seller, uint8 saleType, address currency, uint256 price, uint64 rentDuration, bytes rentPermissions, bool active, bytes32[] tags))',
+  'function nextListingId() external view returns (uint256)',
+  'function feeBps() external view returns (uint96)',
+  'function feeReceiver() external view returns (address)',
+  'event Listed(uint256 indexed id, address indexed collection, uint256 indexed tokenId, address seller, uint8 saleType, address currency, uint256 price)',
+  'event ListingUpdated(uint256 indexed id, address currency, uint256 price, uint64 rentDuration, bytes rentPermissions, bytes32[] tags)',
+  'event Unlisted(uint256 indexed id)',
+  'event Purchased(uint256 indexed id, address indexed buyer, uint256 pricePaid)'
+];
+
+// PermissionManager ABI
+export const PERMISSION_MANAGER_ABI = [
+  'function grantPermission(string calldata permission) external',
+  'function revokePermission(string calldata permission) external',
+  'function hasPermission(address user, string calldata permission) external view returns (bool)',
+  'function getUserPermissions(address user) external view returns (string[])',
+  'event PermissionGranted(address indexed user, string permission)',
+  'event PermissionRevoked(address indexed user, string permission)'
+];
+
+// OGStorage ABI
+export const OG_STORAGE_ABI = [
+  'function storeChatLog(address user, string calldata prompt, string calldata response) external',
+  'function getChatHistory(address user) external view returns (tuple(string prompt, string response, uint256 timestamp)[])',
+  'function storeEncryptedData(address user, string calldata encryptedUri, bytes32 metadataHash) external',
+  'event ChatLogStored(address indexed user, string prompt, string response, uint256 timestamp)',
+  'event EncryptedDataStored(address indexed user, string encryptedUri, bytes32 metadataHash)'
 ];
 
 export class Web3Service {
@@ -149,12 +202,135 @@ export class Web3Service {
     return new ethers.Contract(CONTRACT_ADDRESSES.SECURE_TEE_ORACLE, SECURE_TEE_ORACLE_ABI, this.signer);
   }
 
+  getDataCatalogContract() {
+    if (!this.signer) throw new Error('Wallet not connected');
+    return new ethers.Contract(CONTRACT_ADDRESSES.DATA_CATALOG, DATA_CATALOG_ABI, this.signer);
+  }
+
+  getDataMarketplaceContract() {
+    if (!this.signer) throw new Error('Wallet not connected');
+    return new ethers.Contract(CONTRACT_ADDRESSES.DATA_MARKETPLACE, DATA_MARKETPLACE_ABI, this.signer);
+  }
+
+  getPermissionManagerContract() {
+    if (!this.signer) throw new Error('Wallet not connected');
+    return new ethers.Contract(CONTRACT_ADDRESSES.PERMISSION_MANAGER, PERMISSION_MANAGER_ABI, this.signer);
+  }
+
+  getOGStorageContract() {
+    if (!this.signer) throw new Error('Wallet not connected');
+    return new ethers.Contract(CONTRACT_ADDRESSES.OG_STORAGE, OG_STORAGE_ABI, this.signer);
+  }
+
+  // Permission management operations
+  async grantPermission(permission: string): Promise<any> {
+    const contract = this.getPermissionManagerContract();
+    const tx = await contract.grantPermission(permission);
+    return await tx.wait();
+  }
+
+  async revokePermission(permission: string): Promise<any> {
+    const contract = this.getPermissionManagerContract();
+    const tx = await contract.revokePermission(permission);
+    return await tx.wait();
+  }
+
+  async hasPermission(user: string, permission: string): Promise<boolean> {
+    const contract = this.getPermissionManagerContract();
+    return await contract.hasPermission(user, permission);
+  }
+
+  async getUserPermissions(user: string): Promise<string[]> {
+    const contract = this.getPermissionManagerContract();
+    return await contract.getUserPermissions(user);
+  }
+
+  // Data catalog operations
+  async setTags(collection: string, tokenId: string, tags: string[]): Promise<any> {
+    const contract = this.getDataCatalogContract();
+    const tagBytes = tags.map(tag => ethers.keccak256(ethers.toUtf8Bytes(tag)));
+    const tx = await contract.setTags(collection, tokenId, tagBytes);
+    return await tx.wait();
+  }
+
+  async setAttributes(collection: string, tokenId: string, attributes: {key: string, value: string}[]): Promise<any> {
+    const contract = this.getDataCatalogContract();
+    const attrBytes = attributes.map(attr => ({
+      key: ethers.keccak256(ethers.toUtf8Bytes(attr.key)),
+      value: ethers.keccak256(ethers.toUtf8Bytes(attr.value))
+    }));
+    const tx = await contract.setAttributes(collection, tokenId, attrBytes);
+    return await tx.wait();
+  }
+
+  async getTags(collection: string, tokenId: string): Promise<string[]> {
+    const contract = this.getDataCatalogContract();
+    return await contract.getTags(collection, tokenId);
+  }
+
+  // Marketplace operations
+  async listItem(params: {
+    collection: string;
+    tokenId: string;
+    saleType: number; // 0 = Transfer, 1 = Rent
+    currency: string;
+    price: string;
+    rentDuration?: number;
+    rentPermissions?: string;
+    tags: string[];
+  }): Promise<any> {
+    const contract = this.getDataMarketplaceContract();
+    const tagBytes = params.tags.map(tag => ethers.keccak256(ethers.toUtf8Bytes(tag)));
+    const tx = await contract.listItem(
+      params.collection,
+      params.tokenId,
+      params.saleType,
+      params.currency,
+      ethers.parseEther(params.price),
+      params.rentDuration || 0,
+      params.rentPermissions || '0x',
+      tagBytes
+    );
+    return await tx.wait();
+  }
+
+  async buyListing(listingId: string, value?: string): Promise<any> {
+    const contract = this.getDataMarketplaceContract();
+    const tx = await contract.buy(listingId, {
+      value: value ? ethers.parseEther(value) : 0
+    });
+    return await tx.wait();
+  }
+
+  async getListingsByTag(tag: string): Promise<string[]> {
+    const contract = this.getDataMarketplaceContract();
+    const tagBytes = ethers.keccak256(ethers.toUtf8Bytes(tag));
+    return await contract.getListingsByTag(tagBytes);
+  }
+
+  async getListing(id: string): Promise<any> {
+    const contract = this.getDataMarketplaceContract();
+    return await contract.getListing(id);
+  }
+
+  // Chat and storage operations
+  async storeChatLog(user: string, prompt: string, response: string): Promise<any> {
+    const contract = this.getOGStorageContract();
+    const tx = await contract.storeChatLog(user, prompt, response);
+    return await tx.wait();
+  }
+
+  async getChatHistory(user: string): Promise<any> {
+    const contract = this.getOGStorageContract();
+    return await contract.getChatHistory(user);
+  }
+
   // Chat operations - direct contract calls (no gasless)
   async queryLLM(user: string, prompt: string, context?: string): Promise<any> {
     return await computeApiClient.queryLLM({ user, prompt, context });
   }
 
-  async getChatHistory(user: string): Promise<any> {
+  async getChatHistoryCompute(user: string): Promise<any> {
     return await computeApiClient.getChatHistory(user);
   }
 
@@ -185,6 +361,12 @@ export class Web3Service {
       r: sig.r,
       s: sig.s
     };
+  }
+
+  async storeEncryptedData(user: string, encryptedUri: string, metadataHash: string): Promise<any> {
+    const contract = this.getOGStorageContract();
+    const tx = await contract.storeEncryptedData(user, encryptedUri, metadataHash);
+    return await tx.wait();
   }
 }
 

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -22,7 +21,8 @@ import {
   Globe,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  ShoppingBag
 } from 'lucide-react';
 import { useWeb3 } from '@/contexts/Web3Context';
 import { web3Service } from '@/lib/web3';
@@ -33,6 +33,9 @@ import WalletConnect from './WalletConnect';
 import UserProfile from './UserProfile';
 import UDIDManager from './UDIDManager';
 import INFTManager from './INFTManager';
+import { OpacusCrypto } from '@/lib/crypto';
+import DataMarketplace from './DataMarketplace';
+import { Twitter, Instagram, Bitcoin, Music } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -51,6 +54,30 @@ interface UserDataSummary {
   browsingCount: number;
 }
 
+interface DataSourceConfig {
+  id: string;
+  name: string;
+  icon: React.ReactNode;
+  description: string;
+  enabled: boolean;
+  available: boolean;
+  encrypted: boolean;
+  dataCount: number;
+  lastSync?: Date;
+  tags: string[];
+}
+
+interface EncryptedDataMetadata {
+  ciphertextBase64: string;
+  ivBase64: string;
+  wrappedKeyBase64: string;
+  alg: string;
+  tagLength: number;
+  createdAt: number;
+  dataType: string;
+  tags: string[];
+}
+
 const SmartChatBot: React.FC = () => {
   const { address, isConnected } = useWeb3();
   const { position, error: locationError, requestPermission: requestLocationPermission } = useGeolocation();
@@ -60,6 +87,90 @@ const SmartChatBot: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [activeTab, setActiveTab] = useState('chat');
+  const [rsaKeyPair, setRsaKeyPair] = useState<CryptoKeyPair | null>(null);
+  const [publicKeyPem, setPublicKeyPem] = useState<string>('');
+  const [privateKeyPem, setPrivateKeyPem] = useState<string>('');
+  
+  const [dataSources, setDataSources] = useState<DataSourceConfig[]>([
+    {
+      id: 'location',
+      name: '📍 Lokasyon Verisi',
+      icon: <MapPin className="w-5 h-5" />,
+      description: 'Konum tabanlı öneriler ve analiz',
+      enabled: false,
+      available: true,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['location', 'geo', 'personal']
+    },
+    {
+      id: 'browsing',
+      name: '🌐 Chrome Geçmişi',
+      icon: <Chrome className="w-5 h-5" />,
+      description: 'Web sitesi ziyaretleri ve tercihler',
+      enabled: false,
+      available: true,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['browsing', 'web', 'preferences']
+    },
+    {
+      id: 'twitter',
+      name: '🐦 X (Twitter)',
+      icon: <Twitter className="w-5 h-5" />,
+      description: 'Tweetler, takipler ve etkileşimler',
+      enabled: false,
+      available: false,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['social', 'twitter', 'content']
+    },
+    {
+      id: 'instagram',
+      name: '📸 Instagram',
+      icon: <Instagram className="w-5 h-5" />,
+      description: 'Fotoğraflar, story\'ler ve etkileşimler',
+      enabled: false,
+      available: false,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['social', 'instagram', 'visual']
+    },
+    {
+      id: 'amazon',
+      name: '🛒 Amazon',
+      icon: <ShoppingBag className="w-5 h-5" />,
+      description: 'Alışveriş geçmişi ve öneriler',
+      enabled: false,
+      available: false,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['shopping', 'ecommerce', 'preferences']
+    },
+    {
+      id: 'binance',
+      name: '₿ Binance',
+      icon: <Bitcoin className="w-5 h-5" />,
+      description: 'Kripto portföy ve işlem geçmişi',
+      enabled: false,
+      available: false,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['crypto', 'trading', 'finance']
+    },
+    {
+      id: 'tiktok',
+      name: '🎵 TikTok',
+      icon: <Music className="w-5 h-5" />,
+      description: 'İzlenen videolar ve etkileşimler',
+      enabled: false,
+      available: false,
+      encrypted: false,
+      dataCount: 0,
+      tags: ['social', 'video', 'entertainment']
+    }
+  ]);
+
   const [userDataSummary, setUserDataSummary] = useState<UserDataSummary>({
     udidExists: false,
     locationEnabled: false,
@@ -114,6 +225,100 @@ const SmartChatBot: React.FC = () => {
     }
   }, [history.length]);
 
+  useEffect(() => {
+    // Generate RSA key pair for user
+    generateUserKeys();
+  }, []);
+
+  useEffect(() => {
+    // Update data sources based on permissions and encryption status
+    updateDataSourcesStatus();
+  }, [position, history, isConnected, address]);
+
+  const generateUserKeys = async () => {
+    try {
+      const keyPair = await OpacusCrypto.generateRsaKeyPair();
+      const publicPem = await OpacusCrypto.exportRsaPublicKeyToPem(keyPair.publicKey);
+      const privatePem = await OpacusCrypto.exportRsaPrivateKeyToPem(keyPair.privateKey);
+      
+      setRsaKeyPair(keyPair);
+      setPublicKeyPem(publicPem);
+      setPrivateKeyPem(privatePem);
+      
+      // Store keys securely (in production, use secure storage)
+      localStorage.setItem('opacus_public_key', publicPem);
+      localStorage.setItem('opacus_private_key', privatePem);
+    } catch (error) {
+      console.error('Error generating RSA keys:', error);
+    }
+  };
+
+  const updateDataSourcesStatus = async () => {
+    if (!isConnected || !address) return;
+
+    try {
+      // Check permissions from contract
+      const permissions = await web3Service.getUserPermissions(address);
+      
+      setDataSources(prev => prev.map(source => {
+        let enabled = false;
+        let dataCount = 0;
+        let encrypted = false;
+
+        if (source.id === 'location') {
+          enabled = position !== null && permissions.includes('location');
+          dataCount = position ? 1 : 0;
+          encrypted = enabled && position !== null;
+        } else if (source.id === 'browsing') {
+          enabled = history.length > 0 && permissions.includes('browsing');
+          dataCount = history.length;
+          encrypted = enabled && history.length > 0;
+        } else {
+          enabled = permissions.includes(source.id);
+        }
+
+        return {
+          ...source,
+          enabled,
+          dataCount,
+          encrypted,
+          lastSync: enabled ? new Date() : undefined
+        };
+      }));
+    } catch (error) {
+      console.error('Error updating data sources status:', error);
+    }
+  };
+
+  const encryptAndStoreUserData = async (sourceId: string, data: any): Promise<string | null> => {
+    if (!publicKeyPem || !isConnected || !address) return null;
+
+    try {
+      const dataString = JSON.stringify(data);
+      const encrypted = await OpacusCrypto.encryptStringForRecipient(dataString, publicKeyPem);
+      
+      const metadata: EncryptedDataMetadata = {
+        ...encrypted,
+        createdAt: Math.floor(Date.now() / 1000),
+        dataType: sourceId,
+        tags: dataSources.find(s => s.id === sourceId)?.tags || []
+      };
+
+      // Store metadata in OG Storage (mock - implement with actual OG Storage)
+      const metadataString = JSON.stringify(metadata);
+      const metadataHash = ethers.keccak256(ethers.toUtf8Bytes(metadataString));
+      
+      // Store in blockchain
+      await web3Service.storeEncryptedData(address, `og://encrypted-${sourceId}-${Date.now()}`, metadataHash);
+      
+      return metadataHash;
+    } catch (error) {
+      console.error(`Error encrypting ${sourceId} data:`, error);
+      toast.error(`${sourceId} verisi şifrelenemedi`);
+      return null;
+    }
+  };
+
   const addSystemMessage = (content: string) => {
     const systemMessage: Message = {
       id: Date.now().toString(),
@@ -160,49 +365,36 @@ const SmartChatBot: React.FC = () => {
       let botResponse: string;
       let dataSource = '';
 
-      // AI responses enhanced with user data
-      if (currentInput.toLowerCase().includes('neredeyim') || currentInput.toLowerCase().includes('konum')) {
-        if (position) {
-          botResponse = `📍 Şu anda ${position.coords.latitude.toFixed(4)}, ${position.coords.longitude.toFixed(4)} koordinatlarındasınız. Bu konum verisi şifrelenmiş olarak UDID'nize kaydedildi. Yakınınızdaki öneriler için yardımcı olabilir miyim?`;
+      // Enhanced AI responses with encrypted data context
+      const enabledSources = dataSources.filter(s => s.enabled && s.encrypted);
+      const dataContext = enabledSources.map(s => `${s.name}: ${s.dataCount} veri noktası şifrelenmiş`).join(', ');
+
+      if (currentInput.toLowerCase().includes('veri') || currentInput.toLowerCase().includes('şifre')) {
+        if (enabledSources.length > 0) {
+          botResponse = `🔐 Şu anda aktif şifrelenmiş verileriniz:\n\n${dataContext}\n\nTüm verileriniz AES-256-GCM ile şifrelenerek blockchain'de güvenli bir şekilde saklanıyor. Sadece sizin özel anahtarınızla açılabilir.`;
+        } else {
+          botResponse = `Henüz şifrelenmiş veriniz bulunmuyor. Profil sayfasından veri kaynaklarınızı aktif ederek verilerinizi şifreleyebilir ve benimle paylaşabilirsiniz.`;
+        }
+      } else if (currentInput.toLowerCase().includes('marketplace') || currentInput.toLowerCase().includes('pazar')) {
+        botResponse = `🏪 Veri Pazarında şifrelenmiş verilerinizi başkalarıyla güvenli bir şekilde paylaşabilir veya satabilirsiniz:\n\n• Satış: Veri mülkiyetini tamamen devret\n• Kiralama: Belirli süre için kullanım izni ver\n• Otomatik şifreleme: Alıcının anahtarıyla yeniden şifreleme\n\nVeri Pazarı sekmesinden işlemlerinizi yapabilirsiniz.`;
+      } else if (currentInput.toLowerCase().includes('neredeyim') || currentInput.toLowerCase().includes('konum')) {
+        const locationSource = enabledSources.find(s => s.id === 'location');
+        if (locationSource && position) {
+          botResponse = `📍 Konum verileriniz şifrelenmiş durumda! Yaklaşık koordinatlarınız güvenli bir şekilde kaydedildi. Size özel konum bazlı öneriler sunabilirim. Verileriniz sadece sizin özel anahtarınızla çözülebilir.`;
           dataSource = 'location';
         } else {
-          botResponse = 'Konum bilginize erişemiyorum. Lokasyon izni vermek ister misiniz? Bu sayede size özel öneriler sunabilirim.';
+          botResponse = 'Konum verilerinize erişmek için Profil sayfasından lokasyon iznini aktif edin. Verileriniz şifrelenecek ve size özel öneriler sunabileceğim.';
         }
       } else if (currentInput.toLowerCase().includes('geçmiş') || currentInput.toLowerCase().includes('site')) {
-        if (history.length > 0) {
-          const recentSites = history.slice(0, 3).map(h => h.title || h.url).join(', ');
-          botResponse = `🌐 Tarama geçmişinizden ${history.length} site verisi şifrelenmiş durumda. Son ziyaret ettiğiniz siteler: ${recentSites}. Bu veriler üzerinden size özel öneriler yapabilirim.`;
+        const browsingSource = enabledSources.find(s => s.id === 'browsing');
+        if (browsingSource && history.length > 0) {
+          botResponse = `🌐 Tarama geçmişinizden ${history.length} veri noktası şifrelenmiş durumda! Web sitesi tercihlerinize göre kişiselleştirilmiş öneriler sunabilirim. Tüm veriler AES-256 ile korunuyor.`;
           dataSource = 'browsing';
         } else {
-          botResponse = 'Tarama geçmişinize erişemiyorum. Chrome geçmişi izni vermek ister misiniz? Bu sayede kişiselleştirilmiş öneriler sunabilirim.';
+          botResponse = 'Tarama geçmişinize erişmek için Profil sayfasından Chrome geçmişi iznini aktif edin. Verileriniz şifrelenecek ve size özel içerik önerebileceğim.';
         }
-      } else if (currentInput.toLowerCase().includes('udid')) {
-        botResponse = isConnected 
-          ? `🔐 UDID'niz aktif ve tüm verileriniz şifrelenmiş durumda. Blockchain üzerinde güvenli kimlik doğrulamanız mevcut.`
-          : 'UDID oluşturmak için cüzdanınızı bağlamanız gerekiyor. Bu sayede verileriniz blockchain üzerinde güvenli bir şekilde şifrelenir.';
-      } else if (currentInput.toLowerCase().includes('veri') || currentInput.toLowerCase().includes('bilgi')) {
-        const enabledData = [];
-        if (userDataSummary.udidExists) enabledData.push('🔐 UDID Kimlik');
-        if (userDataSummary.locationEnabled) enabledData.push('📍 Lokasyon');
-        if (userDataSummary.browsingEnabled) enabledData.push('🌐 Tarama Geçmişi');
-        
-        if (enabledData.length > 0) {
-          botResponse = `Şu anda aktif veri kaynaklarınız: ${enabledData.join(', ')}. Tüm verileriniz şifrelenmiş ve güvenli bir şekilde saklanıyor. Bu veriler sayesinde size kişisel öneriler sunabiliyorum.`;
-        } else {
-          botResponse = 'Henüz hiç veri kaynağı aktif değil. Lokasyon ve tarama geçmişi izinleri vererek benimle daha detaylı sohbet edebilirsiniz.';
-        }
-      } else if (currentInput.toLowerCase().includes('x') || currentInput.toLowerCase().includes('twitter')) {
-        botResponse = '🔜 X (Twitter) entegrasyonu yakında geliyor! Tweetleriniz ve sosyal medya aktiviteniz şifrelenmiş olarak AI\'ya entegre edilecek.';
-      } else if (currentInput.toLowerCase().includes('instagram')) {
-        botResponse = '🔜 Instagram entegrasyonu yakında geliyor! Fotoğraflarınız ve story\'leriniz şifrelenmiş olarak analiz edilebilecek.';
-      } else if (currentInput.toLowerCase().includes('amazon')) {
-        botResponse = '🔜 Amazon entegrasyonu yakında geliyor! Alışveriş geçmişiniz ve önerileriniz kişiselleştirilecek.';
-      } else if (currentInput.toLowerCase().includes('binance')) {
-        botResponse = '🔜 Binance entegrasyonu yakında geliyor! Kripto portföyünüz güvenli bir şekilde analiz edilebilecek.';
-      } else if (currentInput.toLowerCase().includes('tiktok')) {
-        botResponse = '🔜 TikTok entegrasyonu yakında geliyor! İzlediğiniz videolar ve etkileşimleriniz kişiselleştirilecek.';
       } else {
-        botResponse = 'Anlıyorum! Size daha iyi yardımcı olabilmek için veri kaynaklarınızı aktif edebilirsiniz. Lokasyon, tarama geçmişi gibi verilerinizi şifreleyerek kişiselleştirilmiş deneyim sunabilirim. Ne konuda yardım istiyorsunuz?';
+        botResponse = `Merhaba! Ben Opacus AI Asistanınızım. ${enabledSources.length > 0 ? `${enabledSources.length} veri kaynağınız şifrelenmiş durumda.` : 'Henüz veri kaynağınız yok.'}\n\nSize nasıl yardımcı olabilirim?\n\n• Veri şifreleme ve güvenlik\n• Kişiselleştirilmiş öneriler\n• Veri Pazarı işlemleri\n• Blockchain entegrasyonu`;
       }
 
       const botMessage: Message = {
@@ -216,10 +408,10 @@ const SmartChatBot: React.FC = () => {
 
       setMessages(prev => [...prev, botMessage]);
 
-      // Store on blockchain if connected
+      // Store chat on blockchain if connected
       if (isConnected && address) {
         try {
-          await web3Service.queryLLM(address, currentInput, botResponse);
+          await web3Service.storeChatLog(address, currentInput, botResponse);
         } catch (error) {
           console.error('Blockchain storage error:', error);
         }
@@ -255,27 +447,21 @@ const SmartChatBot: React.FC = () => {
         </div>
         
         <div className="flex items-center space-x-2">
-          {userDataSummary.locationEnabled && (
-            <Badge variant="outline" className="border-cyber-green/50 text-cyber-green">
-              <MapPin className="w-3 h-3 mr-1" />
-              Lokasyon
+          {dataSources.filter(s => s.encrypted).map(source => (
+            <Badge key={source.id} variant="outline" className="border-cyber-green/50 text-cyber-green">
+              <Lock className="w-3 h-3 mr-1" />
+              {source.dataCount}
             </Badge>
-          )}
-          {userDataSummary.browsingEnabled && (
-            <Badge variant="outline" className="border-cyber-blue/50 text-cyber-blue">
-              <Chrome className="w-3 h-3 mr-1" />
-              Tarama
-            </Badge>
-          )}
+          ))}
           <WalletConnect />
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content with Tabs */}
       <div className="flex-1 flex">
         <div className="flex-1">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-4 m-4 bg-card/50 backdrop-blur-sm">
+            <TabsList className="grid w-full grid-cols-5 m-4 bg-card/50 backdrop-blur-sm">
               <TabsTrigger value="chat" className="data-[state=active]:bg-cyber-neon/20 data-[state=active]:text-cyber-neon">
                 <MessageSquare className="w-4 h-4 mr-2" />
                 AI Chat
@@ -284,16 +470,21 @@ const SmartChatBot: React.FC = () => {
                 <Settings className="w-4 h-4 mr-2" />
                 Profil
               </TabsTrigger>
+              <TabsTrigger value="marketplace" className="data-[state=active]:bg-cyber-purple/20 data-[state=active]:text-cyber-purple">
+                <ShoppingBag className="w-4 h-4 mr-2" />
+                Pazar
+              </TabsTrigger>
               <TabsTrigger value="udid" className="data-[state=active]:bg-cyber-green/20 data-[state=active]:text-cyber-green">
                 <Shield className="w-4 h-4 mr-2" />
                 UDID
               </TabsTrigger>
-              <TabsTrigger value="inft" className="data-[state=active]:bg-cyber-purple/20 data-[state=active]:text-cyber-purple">
+              <TabsTrigger value="inft" className="data-[state=active]:bg-cyber-yellow/20 data-[state=active]:text-cyber-yellow">
                 <Database className="w-4 h-4 mr-2" />
                 INFT
               </TabsTrigger>
             </TabsList>
 
+            {/* Chat Tab Content */}
             <TabsContent value="chat" className="flex-1 flex flex-col px-4 pb-4">
               <Card className="card-cyber flex-1 flex flex-col">
                 {/* Chat Messages */}
@@ -371,10 +562,10 @@ const SmartChatBot: React.FC = () => {
                 </ScrollArea>
 
                 {/* Data Permission Requests */}
-                {(!userDataSummary.locationEnabled || !userDataSummary.browsingEnabled) && (
+                {(!dataSources.find(s => s.id === 'location')?.enabled || !dataSources.find(s => s.id === 'browsing')?.enabled) && (
                   <div className="p-4 border-t border-cyber-grid">
                     <div className="flex flex-wrap gap-2 mb-3">
-                      {!userDataSummary.locationEnabled && (
+                      {!dataSources.find(s => s.id === 'location')?.enabled && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -385,7 +576,7 @@ const SmartChatBot: React.FC = () => {
                           Lokasyon İzni Ver
                         </Button>
                       )}
-                      {!userDataSummary.browsingEnabled && (
+                      {!dataSources.find(s => s.id === 'browsing')?.enabled && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -427,8 +618,67 @@ const SmartChatBot: React.FC = () => {
               </Card>
             </TabsContent>
 
-            <TabsContent value="profile" className="flex-1 px-4 pb-4">
-              <UserProfile />
+            {/* Profile Tab Content */}
+            <TabsContent value="profile" className="flex-1 px-4 pb-4 overflow-auto">
+              <Card className="card-cyber p-6">
+                <div className="flex items-center mb-6">
+                  <User className="w-6 h-6 mr-2 text-cyber-neon" />
+                  <h3 className="text-xl font-bold glow-text">Veri Kaynakları & İzinler</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {dataSources.map((source) => (
+                    <Card key={source.id} className="p-4 bg-card/30 border-cyber-grid">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center space-x-3">
+                          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                            source.encrypted 
+                              ? 'bg-cyber-green/20 text-cyber-green' 
+                              : source.enabled
+                              ? 'bg-cyber-blue/20 text-cyber-blue'
+                              : source.available 
+                              ? 'bg-muted/20 text-muted-foreground' 
+                              : 'bg-muted/10 text-muted-foreground/50'
+                          }`}>
+                            {source.icon}
+                          </div>
+                          <div>
+                            <h4 className="font-semibold">{source.name}</h4>
+                            <p className="text-xs text-muted-foreground">{source.description}</p>
+                          </div>
+                        </div>
+                        
+                        <Switch
+                          checked={source.enabled}
+                          onCheckedChange={(checked) => handleDataSourceToggle(source.id, checked)}
+                          disabled={!source.available}
+                        />
+                      </div>
+                      
+                      {source.encrypted && (
+                        <div className="flex items-center text-xs text-cyber-green">
+                          <Lock className="w-3 h-3 mr-1" />
+                          {source.dataCount} veri şifrelenmiş
+                          {source.lastSync && (
+                            <span className="ml-2">• {source.lastSync.toLocaleTimeString()}</span>
+                          )}
+                        </div>
+                      )}
+                      
+                      {!source.available && (
+                        <Badge variant="outline" className="border-cyber-blue/50 text-cyber-blue mt-2">
+                          Yakında Geliyor
+                        </Badge>
+                      )}
+                    </Card>
+                  ))}
+                </div>
+              </Card>
+            </TabsContent>
+
+            {/* Marketplace Tab Content */}
+            <TabsContent value="marketplace" className="flex-1 px-4 pb-4">
+              <DataMarketplace />
             </TabsContent>
 
             <TabsContent value="udid" className="flex-1 px-4 pb-4">
